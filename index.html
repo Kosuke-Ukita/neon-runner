@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON RUNNER</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#05050f;
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    min-height:100vh;
+    font-family:'Courier New',monospace;
+    overflow:hidden;
+  }
+  h1{
+    color:#00ffff;
+    font-size:2rem;letter-spacing:.4em;
+    text-shadow:0 0 20px #00ffff,0 0 40px #00ffff80;
+    margin-bottom:12px;
+  }
+  #wrapper{position:relative}
+  canvas{
+    display:block;
+    border:2px solid #00ffff40;
+    box-shadow:0 0 30px #00ffff30, inset 0 0 60px #00000080;
+    border-radius:4px;
+  }
+  #overlay{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    background:#05050fcc;
+    border-radius:4px;
+    gap:18px;
+    transition:opacity .3s;
+  }
+  #overlay.hidden{opacity:0;pointer-events:none}
+  .ov-title{
+    color:#00ffff;font-size:2.4rem;letter-spacing:.3em;
+    text-shadow:0 0 24px #00ffff;
+  }
+  .ov-sub{
+    color:#ff55ff;font-size:1.1rem;letter-spacing:.15em;
+    text-shadow:0 0 12px #ff55ff;
+  }
+  .ov-score{color:#ffffffcc;font-size:1rem;letter-spacing:.1em}
+  #startBtn{
+    padding:12px 36px;
+    background:transparent;
+    border:2px solid #00ffff;
+    color:#00ffff;
+    font-family:inherit;font-size:1.1rem;letter-spacing:.2em;
+    cursor:pointer;border-radius:2px;
+    text-shadow:0 0 8px #00ffff;
+    box-shadow:0 0 16px #00ffff60;
+    transition:all .2s;
+  }
+  #startBtn:hover{
+    background:#00ffff20;
+    box-shadow:0 0 28px #00ffff;
+  }
+  #hint{color:#ffffff50;font-size:.8rem;letter-spacing:.1em;margin-top:-6px}
+</style>
+</head>
+<body>
+<h1>NEON RUNNER</h1>
+<div id="wrapper">
+<canvas id="c" width="900" height="500"></canvas>
+<div id="overlay">
+  <div class="ov-title" id="ovTitle">NEON RUNNER</div>
+  <div class="ov-sub"  id="ovSub">無限に続くネオン都市を駆け抜けろ</div>
+  <div class="ov-score" id="ovScore"></div>
+  <button id="startBtn">START</button>
+  <div id="hint">SPACE / CLICK でジャンプ</div>
+</div>
+</div>
+
+<script type="module">
+import {
+  CANVAS_W, CANVAS_H, GROUND_Y,
+  createGameState, jump, updatePlayer,
+  updateObstacles, isGameOver, updateScore,
+  getHighScore, getGameSpeed, restart,
+} from './game/logic.js';
+
+const canvas  = document.getElementById('c');
+const ctx     = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const startBtn  = document.getElementById('startBtn');
+const ovTitle   = document.getElementById('ovTitle');
+const ovSub     = document.getElementById('ovSub');
+const ovScore   = document.getElementById('ovScore');
+
+// ---- ゲーム状態 ----
+const state = createGameState();
+let highScoreHistory = [];
+let prevTime = 0;
+let gameOverFlag = false;
+
+// ---- 星フィールド ----
+const stars = Array.from({length:120}, () => ({
+  x: Math.random() * CANVAS_W,
+  y: Math.random() * CANVAS_H * 0.6,
+  r: Math.random() * 1.4 + 0.3,
+  a: Math.random() * 0.8 + 0.2,
+}));
+
+// ---- パーティクル ----
+let particles = [];
+function emitParticle(x, y, color) {
+  for (let i = 0; i < 6; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random()-0.5)*4,
+      vy: (Math.random()-0.5)*4 - 2,
+      life: 1,
+      color,
+    });
+  }
+}
+
+// ---- 描画ユーティリティ ----
+function glow(ctx, color, blur) {
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = blur;
+}
+function noGlow(ctx) {
+  ctx.shadowBlur = 0;
+}
+
+// ---- 背景 ----
+function drawBackground() {
+  // 空
+  const sky = ctx.createLinearGradient(0,0,0,CANVAS_H);
+  sky.addColorStop(0,  '#050510');
+  sky.addColorStop(0.7,'#0a0520');
+  sky.addColorStop(1,  '#1a0530');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+
+  // 星
+  for (const s of stars) {
+    ctx.globalAlpha = s.a;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // 遠景ビル群
+  drawCityscape(ctx, 0.15, '#1a0840', 180, 260);
+  drawCityscape(ctx, 0.30, '#200a50', 220, 300);
+}
+
+function drawCityscape(ctx, speed, color, minH, maxH) {
+  // シンプルなビルのシルエット（乱数シードを固定して毎回同じ形に）
+  ctx.fillStyle = color;
+  let x = 0;
+  let rng = mulberry32(42 + minH);
+  while (x < CANVAS_W) {
+    const w = 30 + (rng() * 60 | 0);
+    const h = minH + (rng() * (maxH-minH) | 0);
+    ctx.fillRect(x, GROUND_Y - h, w, h);
+    // 窓
+    ctx.fillStyle = '#ffffff08';
+    for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 10; wy += 18) {
+      for (let wx = x+6; wx < x+w-6; wx += 14) {
+        if (rng() > 0.4) ctx.fillRect(wx, wy, 6, 8);
+      }
+    }
+    ctx.fillStyle = color;
+    x += w + (rng() * 10 | 0);
+  }
+}
+
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ---- 地面 ----
+function drawGround() {
+  // 地面ライン
+  glow(ctx, '#00ff88', 12);
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(CANVAS_W, GROUND_Y);
+  ctx.stroke();
+
+  // グリッドライン（流れるアニメーション）
+  const offset = (Date.now() * getGameSpeed(state) * 0.04) % 60;
+  ctx.globalAlpha = 0.15;
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 1;
+  for (let gx = -offset; gx < CANVAS_W; gx += 60) {
+    ctx.beginPath();
+    ctx.moveTo(gx, GROUND_Y);
+    ctx.lineTo(gx + 30, CANVAS_H);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  noGlow(ctx);
+}
+
+// ---- プレイヤー ----
+function drawPlayer(player) {
+  const {x, y, width: w, height: h} = player;
+  const cx = x + w/2, cy = y + h/2;
+
+  // 体（シアン）
+  glow(ctx, '#00ffff', 20);
+  ctx.fillStyle = '#00dddd';
+  ctx.fillRect(x, y, w, h);
+
+  // エッジハイライト
+  ctx.fillStyle = '#aaffff';
+  ctx.fillRect(x, y, 3, h);
+  ctx.fillRect(x, y, w, 3);
+
+  // コア
+  glow(ctx, '#ffffff', 30);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(cx-6, cy-10, 12, 20);
+
+  // 走行エフェクト（地面にいるとき）
+  if (player.isGrounded) {
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#00ffff';
+    ctx.fillRect(x - 10, y + h - 6, 8, 4);
+    ctx.fillRect(x - 20, y + h - 4, 6, 3);
+    ctx.globalAlpha = 1;
+  }
+
+  noGlow(ctx);
+}
+
+// ---- 障害物 ----
+function drawObstacle(ob) {
+  const {x, y, width:w, height:h} = ob;
+
+  glow(ctx, '#ff2244', 18);
+  ctx.fillStyle = '#cc1133';
+  ctx.fillRect(x, y, w, h);
+
+  ctx.fillStyle = '#ff4466';
+  ctx.fillRect(x, y, 3, h);
+  ctx.fillRect(x, y, w, 3);
+
+  glow(ctx, '#ff0000', 30);
+  ctx.fillStyle = '#ff6688';
+  ctx.fillRect(x + w/2 - 4, y + 6, 8, h - 12);
+
+  noGlow(ctx);
+}
+
+// ---- パーティクル描画 ----
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = p.life;
+    glow(ctx, p.color, 8);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3 * p.life, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  noGlow(ctx);
+}
+
+// ---- HUD ----
+function drawHUD() {
+  // スコア
+  glow(ctx, '#ff55ff', 12);
+  ctx.fillStyle = '#ff55ff';
+  ctx.font = 'bold 22px "Courier New"';
+  ctx.textAlign = 'left';
+  ctx.fillText(`SCORE  ${state.score}`, 24, 40);   // BUG#3: 小数が表示される
+
+  // ハイスコア
+  const hs = getHighScore(highScoreHistory);
+  ctx.fillStyle = '#ffaa44';
+  ctx.font = '14px "Courier New"';
+  ctx.fillText(`BEST  ${hs}`, 24, 62);
+
+  // スピードレベル
+  const spd = getGameSpeed(state);
+  ctx.fillStyle = '#44ffaa';
+  ctx.textAlign = 'right';
+  ctx.font = '13px "Courier New"';
+  ctx.fillText(`SPD  ${spd.toFixed(1)}`, CANVAS_W - 24, 40);
+
+  noGlow(ctx);
+  ctx.textAlign = 'left';
+}
+
+// ---- ゲームループ ----
+function gameLoop(ts) {
+  const dt = Math.min(ts - prevTime, 50);
+  prevTime = ts;
+
+  // 更新
+  if (state.running && !gameOverFlag) {
+    updatePlayer(state.player);
+    updateObstacles(state, dt);
+    updateScore(state, dt);
+
+    // 衝突チェック
+    if (isGameOver(state)) {
+      gameOverFlag = true;
+      state.running = false;
+      highScoreHistory.push(Math.floor(state.score));
+      emitParticle(
+        state.player.x + state.player.width/2,
+        state.player.y + state.player.height/2,
+        '#ff4466'
+      );
+      showGameOver();
+    }
+  }
+
+  // パーティクル更新
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.04;
+  }
+  particles = particles.filter(p => p.life > 0);
+
+  // 描画
+  drawBackground();
+  drawGround();
+  for (const ob of state.obstacles) drawObstacle(ob);
+  if (!gameOverFlag) drawPlayer(state.player);
+  drawParticles();
+  if (state.running || gameOverFlag) drawHUD();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ---- UI ----
+function showStart() {
+  ovTitle.textContent  = 'NEON RUNNER';
+  ovSub.textContent    = '無限に続くネオン都市を駆け抜けろ';
+  ovScore.textContent  = '';
+  startBtn.textContent = 'START';
+  overlay.classList.remove('hidden');
+}
+
+function showGameOver() {
+  const sc  = Math.floor(state.score);
+  const hs  = getHighScore(highScoreHistory);
+  ovTitle.textContent  = 'GAME OVER';
+  ovSub.textContent    = `SCORE: ${sc}`;
+  ovScore.textContent  = `BEST: ${hs}`;
+  startBtn.textContent = 'RETRY';
+  overlay.classList.remove('hidden');
+}
+
+function startGame() {
+  if (gameOverFlag) {
+    restart(state);   // BUG#2: obstaclesがリセットされない
+  } else {
+    state.running = true;
+  }
+  gameOverFlag = false;
+  overlay.classList.add('hidden');
+}
+
+// ---- 入力 ----
+startBtn.addEventListener('click', startGame);
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (overlay.classList.contains('hidden')) {
+      jump(state.player);   // BUG#1: 空中でも何度でもジャンプ
+    } else {
+      startGame();
+    }
+  }
+});
+
+canvas.addEventListener('click', () => {
+  if (overlay.classList.contains('hidden')) {
+    jump(state.player);
+  }
+});
+
+// ---- 起動 ----
+requestAnimationFrame(ts => { prevTime = ts; requestAnimationFrame(gameLoop); });
+showStart();
+</script>
+</body>
+</html>

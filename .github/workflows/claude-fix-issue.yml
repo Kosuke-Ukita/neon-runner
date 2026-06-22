@@ -1,0 +1,94 @@
+name: Claude — Issue 自動修正
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  claude-fix:
+    if: github.event.label.name == 'claude-fix'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: git ユーザー設定
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Claude でコードを修正
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --max-turns 20
+            --allowedTools "Read,Edit,Bash(node tests/test.js)"
+          prompt: |
+            以下のissueを修正してください。
+
+            ## Issue #${{ github.event.issue.number }}
+            タイトル: ${{ github.event.issue.title }}
+
+            内容:
+            ${{ github.event.issue.body }}
+
+            ## 指示
+            1. CLAUDE.md を読む
+            2. 該当箇所を修正する
+            3. git コマンドは実行しない（次のステップが自動処理する）
+
+      - name: PR を作成
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet HEAD; then
+            echo "変更なし — スキップします"
+            exit 0
+          fi
+
+          BRANCH="fix/issue-${{ github.event.issue.number }}"
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "fix: #${{ github.event.issue.number }} ${{ github.event.issue.title }}"
+
+          # push 直前にトークン付き URL を設定（claude-code-action による上書きを回避）
+          git remote set-url origin \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "fix: #${{ github.event.issue.number }} ${{ github.event.issue.title }}" \
+            --body "Closes #${{ github.event.issue.number }}" \
+            --base main
+
+      - name: issue にコメント
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="fix/issue-${{ github.event.issue.number }}"
+          PR_URL=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null || echo "")
+
+          if [ -n "$PR_URL" ]; then
+            MSG="✅ 修正が完了しました。PRを確認してください: $PR_URL"
+          elif git diff --quiet HEAD 2>/dev/null; then
+            MSG="⚠️ 変更が見つかりませんでした。issueの内容を確認してください。"
+          else
+            MSG="⚠️ PRの作成に失敗しました。Actionsのログを確認してください。"
+          fi
+
+          gh issue comment ${{ github.event.issue.number }} --body "$MSG"
