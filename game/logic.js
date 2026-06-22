@@ -3,9 +3,9 @@
  * ブラウザと Node.js の両方で動作します。
  */
 
-const CANVAS_W   = 900;
-const CANVAS_H   = 500;
-const GROUND_Y   = 430;
+export const CANVAS_W   = 900;
+export const CANVAS_H   = 500;
+export const GROUND_Y   = 430;
 const GRAVITY    = 0.7;
 const JUMP_FORCE = -15;
 const INITIAL_SPEED = 5;
@@ -23,14 +23,14 @@ function createPlayer() {
   };
 }
 
-function jump(player) {
+export function jump(player) {
   if (!player.isGrounded) return;
 
   player.vy = JUMP_FORCE;
   player.isGrounded = false;
 }
 
-function updatePlayer(player) {
+export function updatePlayer(player) {
   if (!player.isGrounded) {
     player.vy += GRAVITY;
   }
@@ -56,7 +56,7 @@ function createObstacle() {
   };
 }
 
-function updateObstacles(state) {
+export function updateObstacles(state) {
   const speed = getGameSpeed(state);
   for (const ob of state.obstacles) {
     ob.x -= speed;
@@ -82,29 +82,29 @@ function checkCollision(player, obstacle) {
   );
 }
 
-function isGameOver(state) {
+export function isGameOver(state) {
   return state.obstacles.some(ob => checkCollision(state.player, ob));
 }
 
 // ---- スコア ----
 
-function updateScore(state, deltaTime) {
+export function updateScore(state, deltaTime) {
   state.score += deltaTime * 0.05;
 }
 
-function getHighScore(previousScores) {
+export function getHighScore(previousScores) {
   return previousScores.length > 0 ? Math.max(...previousScores) : 0;
 }
 
 // ---- ゲームスピード ----
 
-function getGameSpeed(state) {
+export function getGameSpeed(state) {
   return INITIAL_SPEED + Math.floor(state.score / 300) * 0.6;
 }
 
 // ---- ゲーム状態 ----
 
-function createGameState() {
+export function createGameState() {
   return {
     player:          createPlayer(),
     obstacles:       [],
@@ -115,7 +115,7 @@ function createGameState() {
   };
 }
 
-function restart(state) {
+export function restart(state) {
   state.player         = createPlayer();
   state.score          = 0;
   state.time           = 0;
