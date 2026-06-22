@@ -77,14 +77,9 @@
 </div>
 </div>
 
-<script type="module">
-import {
-  CANVAS_W, CANVAS_H, GROUND_Y,
-  createGameState, jump, updatePlayer,
-  updateObstacles, isGameOver, updateScore,
-  getHighScore, getGameSpeed, restart,
-} from './game/logic.js';
 
+<script type="module" src="./game/logic.js"></script>
+<script type="module">
 const canvas  = document.getElementById('c');
 const ctx     = canvas.getContext('2d');
 const overlay = document.getElementById('overlay');
