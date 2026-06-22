@@ -124,24 +124,3 @@ function restart(state) {
   state.obstacles = [];
 }
 
-// ---- エクスポート ----
-
-export {
-  CANVAS_W, CANVAS_H, GROUND_Y, GRAVITY, JUMP_FORCE, INITIAL_SPEED,
-  createPlayer, createObstacle, createGameState,
-  jump, updatePlayer,
-  updateObstacles, checkCollision, isGameOver,
-  updateScore, getHighScore, getGameSpeed,
-  restart,
-};
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    CANVAS_W, CANVAS_H, GROUND_Y, GRAVITY, JUMP_FORCE, INITIAL_SPEED,
-    createPlayer, createObstacle, createGameState,
-    jump, updatePlayer,
-    updateObstacles, checkCollision, isGameOver,
-    updateScore, getHighScore, getGameSpeed,
-    restart,
-  };
-}
